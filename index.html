@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>지구과학탐구: 장마철/비장마철 강수량 분석 도구</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PapaParse CDN for CSV Parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Chart.js CDN for Visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chart.js BoxPlot Plugin CDN -->
+    <script src="https://unpkg.com/@sgratzl/chartjs-chart-boxplot@4.2.0/build/index.umd.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+        }
+        .drag-active {
+            border-color: #3b82f6 !important;
+            background-color: #eff6ff !important;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+    <!-- Navigation Header -->
+    <header class="bg-indigo-900 text-white shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div class="flex items-center space-x-3">
+                <div class="p-2.5 bg-indigo-700/80 rounded-xl shadow-inner border border-indigo-500/30">
+                    <i data-lucide="cloud-rain" class="w-6 h-6 text-cyan-300"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-white">지구과학탐구: 강수량 데이터 분석기</h1>
+                    <p class="text-xs text-indigo-200">장마철과 비장마철의 일 강수량(mm) 데이터 파싱 및 정밀 비교 시각화</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <button id="btnDownloadSample" class="text-xs bg-indigo-800 hover:bg-indigo-700 text-indigo-100 font-medium py-2 px-3 rounded-lg transition border border-indigo-600/50 flex items-center gap-1.5 shadow-sm">
+                    <i data-lucide="download" class="w-4 h-4 text-cyan-300"></i>
+                    샘플 CSV 양식 다운로드
+                </button>
+                <button id="btnLoadSample" class="text-xs bg-cyan-600 hover:bg-cyan-500 text-white font-medium py-2 px-3 rounded-lg transition shadow-sm flex items-center gap-1.5">
+                    <i data-lucide="sparkles" class="w-4 h-4"></i>
+                    예시 데이터 불러오기
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Body Container -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        
+        <!-- File Upload Section -->
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
+            <div class="max-w-3xl mx-auto text-center">
+                <h2 class="text-lg font-bold text-slate-800 mb-2 flex items-center justify-center gap-2">
+                    <i data-lucide="file-spread-sheet" class="w-5 h-5 text-indigo-600"></i>
+                    CSV 데이터 파일 업로드
+                </h2>
+                <p class="text-xs sm:text-sm text-slate-500 mb-6">
+                    [날짜, 시간, 일 강수량(mm), 장마철 여부] 항목이 포함된 CSV 파일을 드래그하거나 선택하세요.
+                </p>
+
+                <!-- Drag & Drop Zone -->
+                <div id="dropZone" class="border-2 border-dashed border-slate-300 rounded-xl p-8 bg-slate-50 hover:bg-slate-100/80 transition cursor-pointer flex flex-col items-center justify-center space-y-3 group">
+                    <div class="p-3.5 bg-indigo-50 text-indigo-600 rounded-full group-hover:scale-110 transition duration-200">
+                        <i data-lucide="upload-cloud" class="w-8 h-8"></i>
+                    </div>
+                    <div>
+                        <span class="text-sm font-semibold text-indigo-600 hover:text-indigo-700">클릭하여 파일 선택</span>
+                        <span class="text-sm text-slate-500"> 또는 CSV 파일을 드래그하세요</span>
+                    </div>
+                    <p class="text-xs text-slate-400">지원 형식: .csv (UTF-8, EUC-KR 자동 감지)</p>
+                    <input type="file" id="csvFileInput" accept=".csv" class="hidden">
+                </div>
+
+                <!-- Column Mapping Selector (Displayed if headers cannot be auto-detected) -->
+                <div id="columnMappingArea" class="hidden mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-left">
+                    <h3 class="text-sm font-semibold text-amber-900 mb-2 flex items-center gap-2">
+                        <i data-lucide="sliders" class="w-4 h-4 text-amber-600"></i>
+                        열(Column) 수동 지정
+                    </h3>
+                    <p class="text-xs text-amber-700 mb-3">파일의 열 이름을 자동으로 인식하지 못했습니다. 아래에서 각 항목에 맞는 열을 지정해주세요.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                        <div>
+                            <label class="block font-medium text-slate-700 mb-1">날짜 열</label>
+                            <select id="colDate" class="w-full bg-white border border-slate-300 rounded-md p-2 text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"></select>
+                        </div>
+                        <div>
+                            <label class="block font-medium text-slate-700 mb-1">시간 열</label>
+                            <select id="colTime" class="w-full bg-white border border-slate-300 rounded-md p-2 text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"></select>
+                        </div>
+                        <div>
+                            <label class="block font-medium text-slate-700 mb-1">일 강수량(mm) 열</label>
+                            <select id="colPrecip" class="w-full bg-white border border-slate-300 rounded-md p-2 text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"></select>
+                        </div>
+                        <div>
+                            <label class="block font-medium text-slate-700 mb-1">장마철 여부 열</label>
+                            <select id="colMonsoon" class="w-full bg-white border border-slate-300 rounded-md p-2 text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"></select>
+                        </div>
+                    </div>
+                    <button id="btnApplyMapping" class="mt-4 px-4 py-2 bg-amber-600 text-white text-xs font-semibold rounded-lg hover:bg-amber-700 transition">
+                        지정된 설정으로 분석 실행
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Empty State Placeholder -->
+        <div id="emptyState" class="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200">
+            <div class="inline-flex p-4 bg-slate-100 rounded-full mb-4 text-slate-400">
+                <i data-lucide="bar-chart-2" class="w-10 h-10"></i>
+            </div>
+            <h3 class="text-base font-semibold text-slate-700 mb-1">분석 결과가 여기에 표시됩니다</h3>
+            <p class="text-xs sm:text-sm text-slate-400">상단의 버튼을 눌러 예시 데이터를 로드하거나 CSV 파일을 업로드해주세요.</p>
+        </div>
+
+        <!-- Dashboard Area (Hidden by default) -->
+        <div id="dashboardArea" class="hidden space-y-8">
+            
+            <!-- Summary Overview Cards -->
+            <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Data Status Card -->
+                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div class="flex items-center justify-between text-slate-500 mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider">데이터 검증 상태</span>
+                        <i data-lucide="shield-check" class="w-4 h-4 text-slate-400"></i>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="text-2xl font-bold text-slate-800"><span id="validCount">0</span> <span class="text-xs font-normal text-slate-500">건 유효</span></div>
+                        <div class="text-xs font-medium text-rose-600 bg-rose-50 border border-rose-100 px-2.5 py-1 rounded-md inline-block">
+                            제외된 오류/누락 데이터: <strong id="excludedCount">0</strong>개
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-3">총 파일 레코드: <span id="totalRowCount">0</span>행</p>
+                </div>
+
+                <!-- Jangma (Monsoon) Summary Card -->
+                <div class="bg-gradient-to-br from-blue-50 to-indigo-50/60 p-5 rounded-2xl border border-blue-200 shadow-sm flex flex-col justify-between">
+                    <div class="flex items-center justify-between text-blue-700 mb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span> 장마철 기간
+                        </span>
+                        <i data-lucide="cloud-rain" class="w-4 h-4 text-blue-500"></i>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 my-1">
+                        <div>
+                            <span class="text-[11px] text-slate-500 block">일 강수량 평균</span>
+                            <span class="text-xl font-bold text-blue-900"><span id="monsoonAvg">0.0</span> <span class="text-xs font-normal">mm</span></span>
+                        </div>
+                        <div>
+                            <span class="text-[11px] text-slate-500 block">일 강수량 최댓값</span>
+                            <span class="text-xl font-bold text-indigo-900"><span id="monsoonMax">0.0</span> <span class="text-xs font-normal">mm</span></span>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-blue-600 mt-2">분석 일수: <span id="monsoonCount" class="font-semibold">0</span>일</p>
+                </div>
+
+                <!-- Non-Jangma (Non-Monsoon) Summary Card -->
+                <div class="bg-gradient-to-br from-emerald-50 to-teal-50/60 p-5 rounded-2xl border border-emerald-200 shadow-sm flex flex-col justify-between">
+                    <div class="flex items-center justify-between text-emerald-700 mb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> 비장마철 기간
+                        </span>
+                        <i data-lucide="sun" class="w-4 h-4 text-emerald-500"></i>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 my-1">
+                        <div>
+                            <span class="text-[11px] text-slate-500 block">일 강수량 평균</span>
+                            <span class="text-xl font-bold text-emerald-900"><span id="nonMonsoonAvg">0.0</span> <span class="text-xs font-normal">mm</span></span>
+                        </div>
+                        <div>
+                            <span class="text-[11px] text-slate-500 block">일 강수량 최댓값</span>
+                            <span class="text-xl font-bold text-teal-900"><span id="nonMonsoonMax">0.0</span> <span class="text-xs font-normal">mm</span></span>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-emerald-600 mt-2">분석 일수: <span id="nonMonsoonCount" class="font-semibold">0</span>일</p>
+                </div>
+
+                <!-- Comparison Summary Card -->
+                <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div class="flex items-center justify-between text-slate-500 mb-2">
+                        <span class="text-xs font-semibold uppercase tracking-wider">평균 강수량 비교</span>
+                        <i data-lucide="git-compare" class="w-4 h-4 text-slate-400"></i>
+                    </div>
+                    <div>
+                        <div class="text-2xl font-bold text-slate-800 mb-1" id="ratioText">0.0배</div>
+                        <p class="text-xs text-slate-500 leading-relaxed" id="ratioSubText">
+                            장마철 평균 강수량이 비장마철보다 높습니다.
+                        </p>
+                    </div>
+                    <!-- Ratio Visual Bar -->
+                    <div class="w-full bg-slate-100 rounded-full h-2 mt-3 overflow-hidden flex">
+                        <div id="barMonsoonRatio" class="bg-blue-500 h-full transition-all duration-500" style="width: 50%;"></div>
+                        <div id="barNonMonsoonRatio" class="bg-emerald-400 h-full transition-all duration-500" style="width: 50%;"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Interactive Visualizations -->
+            <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <i data-lucide="line-chart" class="w-5 h-5 text-indigo-600"></i>
+                            일 강수량 비교 시각화 (mm)
+                        </h3>
+                        <p class="text-xs text-slate-500">장마철과 비장마철의 강수 통계 및 데이터 분포 차이를 시각적으로 비교합니다.</p>
+                    </div>
+                    
+                    <!-- Chart Selector Tabs -->
+                    <div class="inline-flex rounded-lg bg-slate-100 p-1 text-xs">
+                        <button id="btnChartBar" class="px-3 py-1.5 rounded-md font-medium text-slate-800 bg-white shadow-sm transition">
+                            평균 & 최댓값 (막대)
+                        </button>
+                        <button id="btnChartBox" class="px-3 py-1.5 rounded-md font-medium text-slate-500 hover:text-slate-800 transition">
+                            분포 비교 (Box Plot)
+                        </button>
+                        <button id="btnChartTimeline" class="px-3 py-1.5 rounded-md font-medium text-slate-500 hover:text-slate-800 transition">
+                            날짜별 시계열
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Canvas Chart Container -->
+                <div class="relative w-full h-[380px]">
+                    <canvas id="mainChart"></canvas>
+                </div>
+            </section>
+
+            <!-- Filtered Clean Data Table -->
+            <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                            <i data-lucide="table" class="w-5 h-5 text-indigo-600"></i>
+                            정제 데이터 목록
+                        </h3>
+                        <p class="text-xs text-slate-500">결측치 및 유효하지 않은 항목이 삭제된 최종 데이터입니다. (단위: mm)</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <input type="text" id="tableSearch" placeholder="날짜 검색..." class="text-xs border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <select id="tableFilter" class="text-xs border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="all">전체 보기</option>
+                            <option value="monsoon">장마철만 보기</option>
+                            <option value="nonMonsoon">비장마철만 보기</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto border border-slate-200 rounded-xl max-h-80 overflow-y-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead class="bg-slate-50 sticky top-0 border-b border-slate-200 text-slate-600 font-semibold">
+                            <tr>
+                                <th class="py-3 px-4">#</th>
+                                <th class="py-3 px-4">날짜</th>
+                                <th class="py-3 px-4">시간</th>
+                                <th class="py-3 px-4">구분</th>
+                                <th class="py-3 px-4 text-right">일 강수량 (mm)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataTableBody" class="divide-y divide-slate-100 text-slate-700">
+                            <!-- Dynamic Table Rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 mt-auto py-6">
+        <div class="max-w-7xl mx-auto px-4 text-center text-xs text-slate-400 space-y-1">
+            <p>고등학교 지구과학탐구 및 과학과제연구 학습용 데이터 분석 앱</p>
+            <p>강수량 측정 표준 단위 규칙 준수: <strong>mm (밀리미터)</strong> 고정</p>
+        </div>
+    </footer>
+
+    <script>
+        // Global Application State Variables
+        let rawCSVData = [];
+        let validCleanData = [];
+        let excludedCount = 0;
+        let mappedCols = { date: '', time: '', precip: '', monsoon: '' };
+        let activeChartType = 'bar'; // 'bar', 'box', 'timeline'
+        let chartInstance = null;
+
+        // DOM Elements
+        const dropZone = document.getElementById('dropZone');
+        const csvFileInput = document.getElementById('csvFileInput');
+        const emptyState = document.getElementById('emptyState');
+        const dashboardArea = document.getElementById('dashboardArea');
+        const columnMappingArea = document.getElementById('columnMappingArea');
+        const btnDownloadSample = document.getElementById('btnDownloadSample');
+        const btnLoadSample = document.getElementById('btnLoadSample');
+
+        // Initialize Icons
+        lucide.createIcons();
+
+        // Drag & Drop Handlers
+        dropZone.addEventListener('click', () => csvFileInput.click());
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-active');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-active'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-active');
+            if (e.dataTransfer.files.length > 0) {
+                parseFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        csvFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                parseFile(e.target.files[0]);
+            }
+        });
+
+        // Sample Data Generation and Download Handler
+        btnDownloadSample.addEventListener('click', () => {
+            const csvContent = generateSampleCSVText();
+            const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); // UTF-8 BOM for Excel
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "지구과학_강수량_샘플데이터.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        btnLoadSample.addEventListener('click', () => {
+            const sampleText = generateSampleCSVText();
+            Papa.parse(sampleText, {
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    processCSVData(results.data);
+                }
+            });
+        });
+
+        // Generate Realistic Sample Earth Science Data
+        function generateSampleCSVText() {
+            let csv = "날짜,시간,일 강수량(mm),장마철 여부\n";
+            const startDate = new Date(2025, 5, 1); // June 1st
+            
+            for (let i = 0; i < 60; i++) {
+                const curDate = new Date(startDate);
+                curDate.setDate(startDate.getDate() + i);
+                const dateStr = curDate.toISOString().split('T')[0];
+                const timeStr = "09:00";
+
+                // Jangma period: June 25 ~ July 25
+                const isMonsoon = i >= 24 && i <= 54;
+                const monsoonLabel = isMonsoon ? "장마" : "비장마";
+
+                let precip = 0;
+                if (isMonsoon) {
+                    // Higher likelihood of heavy rain during monsoon
+                    if (Math.random() > 0.3) {
+                        precip = (Math.random() * 80 + 10).toFixed(1);
+                    }
+                } else {
+                    // Occasional summer showers
+                    if (Math.random() > 0.7) {
+                        precip = (Math.random() * 20 + 0.5).toFixed(1);
+                    }
+                }
+
+                // Inject 3 intentionally corrupted or empty rows to test exclusion logic
+                if (i === 12) {
+                    csv += `${dateStr},${timeStr},,비장마\n`; // Missing precipitation
+                } else if (i === 30) {
+                    csv += `${dateStr},${timeStr},-15.0,장마\n`; // Invalid negative precipitation
+                } else if (i === 42) {
+                    csv += `${dateStr},${timeStr},12.5,알수없음\n`; // Unrecognized monsoon status
+                } else {
+                    csv += `${dateStr},${timeStr},${precip},${monsoonLabel}\n`;
+                }
+            }
+            return csv;
+        }
+
+        function parseFile(file) {
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                encoding: "EUC-KR",
+                complete: function(results) {
+                    if (!results.data || results.data.length === 0 || Object.keys(results.data[0]).length <= 1) {
+                        // Retry with UTF-8 if EUC-KR fails to parse columns correctly
+                        Papa.parse(file, {
+                            header: true,
+                            skipEmptyLines: true,
+                            encoding: "UTF-8",
+                            complete: function(utf8Results) {
+                                processCSVData(utf8Results.data);
+                            }
+                        });
+                    } else {
+                        processCSVData(results.data);
+                    }
+                }
+            });
+        }
+
+        function processCSVData(data) {
+            rawCSVData = data;
+            if (rawCSVData.length === 0) {
+                alert('CSV 파일에 데이터가 존재하지 않습니다.');
+                return;
+            }
+
+            const headers = Object.keys(rawCSVData[0]);
+
+            // Auto-detect columns flexible header matching
+            mappedCols.date = headers.find(h => /날짜|일자|date|dt/i.test(h)) || headers[0] || '';
+            mappedCols.time = headers.find(h => /시간|시각|time/i.test(h)) || headers[1] || '';
+            mappedCols.precip = headers.find(h => /강수량|강수|precip|rain|일강수량/i.test(h)) || headers[2] || '';
+            mappedCols.monsoon = headers.find(h => /장마|구분|monsoon|여부/i.test(h)) || headers[3] || '';
+
+            if (!mappedCols.precip || !mappedCols.monsoon) {
+                showColumnSelector(headers);
+            } else {
+                columnMappingArea.classList.add('hidden');
+                executeDataAnalysis();
+            }
+        }
+
+        function showColumnSelector(headers) {
+            columnMappingArea.classList.remove('hidden');
+            const populateOptions = (elementId, selectedVal) => {
+                const el = document.getElementById(elementId);
+                el.innerHTML = headers.map(h => `<option value="${h}" ${h === selectedVal ? 'selected' : ''}>${h}</option>`).join('');
+            };
+
+            populateOptions('colDate', mappedCols.date);
+            populateOptions('colTime', mappedCols.time);
+            populateOptions('colPrecip', mappedCols.precip);
+            populateOptions('colMonsoon', mappedCols.monsoon);
+
+            document.getElementById('btnApplyMapping').onclick = () => {
+                mappedCols.date = document.getElementById('colDate').value;
+                mappedCols.time = document.getElementById('colTime').value;
+                mappedCols.precip = document.getElementById('colPrecip').value;
+                mappedCols.monsoon = document.getElementById('colMonsoon').value;
+                executeDataAnalysis();
+            };
+        }
+
+        function executeDataAnalysis() {
+            validCleanData = [];
+            excludedCount = 0;
+
+            rawCSVData.forEach((row, idx) => {
+                const rawPrecip = row[mappedCols.precip];
+                const rawMonsoon = row[mappedCols.monsoon];
+                const dateVal = row[mappedCols.date] || `행 ${idx + 1}`;
+                const timeVal = row[mappedCols.time] || '-';
+
+                // Check missing or null values
+                if (rawPrecip === undefined || rawPrecip === null || rawPrecip === '' || 
+                    rawMonsoon === undefined || rawMonsoon === null || rawMonsoon === '') {
+                    excludedCount++;
+                    return;
+                }
+
+                // Parse precipitation numeric value
+                const precipNum = parseFloat(String(rawPrecip).replace(/,/g, '').trim());
+                if (isNaN(precipNum) || precipNum < 0) {
+                    excludedCount++;
+                    return; // Exclude invalid or negative precipitation
+                }
+
+                // Parse Monsoon Status (Compatible with 1/0, 장마/비장마, True/False)
+                const monsoonStr = String(rawMonsoon).trim().toLowerCase();
+                let isMonsoon = null;
+
+                if (['장마', '장마철', '1', 'true', 'y', 'o'].includes(monsoonStr)) {
+                    isMonsoon = true;
+                } else if (['비장마', '비장마철', '0', 'false', 'n', 'x'].includes(monsoonStr)) {
+                    isMonsoon = false;
+                } else {
+                    excludedCount++;
+                    return; // Exclude unrecognized status
+                }
+
+                validCleanData.push({
+                    id: idx + 1,
+                    date: String(dateVal).trim(),
+                    time: String(timeVal).trim(),
+                    precip: precipNum, // unit: mm
+                    isMonsoon: isMonsoon
+                });
+            });
+
+            // Separate into Monsoon and Non-Monsoon datasets
+            const monsoonSet = validCleanData.filter(d => d.isMonsoon);
+            const nonMonsoonSet = validCleanData.filter(d => !d.isMonsoon);
+
+            const calculateStats = (arr) => {
+                if (arr.length === 0) return { avg: 0, max: 0, sum: 0, count: 0, values: [] };
+                const values = arr.map(d => d.precip);
+                const sum = values.reduce((a, b) => a + b, 0);
+                const avg = sum / values.length;
+                const max = Math.max(...values);
+                return { avg, max, sum, count: values.length, values };
+            };
+
+            const monsoonStats = calculateStats(monsoonSet);
+            const nonMonsoonStats = calculateStats(nonMonsoonSet);
+
+            // Update UI elements
+            updateDashboardCards(monsoonStats, nonMonsoonStats);
+
+            emptyState.classList.add('hidden');
+            dashboardArea.classList.remove('hidden');
+
+            renderCharts(monsoonStats, nonMonsoonStats);
+            renderDataTable(validCleanData);
+        }
+
+        function updateDashboardCards(monsoon, nonMonsoon) {
+            document.getElementById('totalRowCount').textContent = rawCSVData.length.toLocaleString();
+            document.getElementById('validCount').textContent = validCleanData.length.toLocaleString();
+            document.getElementById('excludedCount').textContent = excludedCount.toLocaleString();
+
+            // Jangma Stats Cards
+            document.getElementById('monsoonAvg').textContent = monsoon.avg.toFixed(2);
+            document.getElementById('monsoonMax').textContent = monsoon.max.toFixed(1);
+            document.getElementById('monsoonCount').textContent = monsoon.count.toLocaleString();
+
+            // Non-Jangma Stats Cards
+            document.getElementById('nonMonsoonAvg').textContent = nonMonsoon.avg.toFixed(2);
+            document.getElementById('nonMonsoonMax').textContent = nonMonsoon.max.toFixed(1);
+            document.getElementById('nonMonsoonCount').textContent = nonMonsoon.count.toLocaleString();
+
+            // Comparison Summary Calculations
+            const ratioText = document.getElementById('ratioText');
+            const ratioSubText = document.getElementById('ratioSubText');
+            const barMonsoonRatio = document.getElementById('barMonsoonRatio');
+            const barNonMonsoonRatio = document.getElementById('barNonMonsoonRatio');
+
+            if (nonMonsoon.avg > 0) {
+                const ratio = (monsoon.avg / nonMonsoon.avg).toFixed(1);
+                ratioText.textContent = `${ratio}배`;
+                ratioSubText.textContent = `장마철 일 강수량 평균(${monsoon.avg.toFixed(1)}mm)이 비장마철(${nonMonsoon.avg.toFixed(1)}mm)의 약 ${ratio}배입니다.`;
+            } else if (monsoon.avg > 0) {
+                ratioText.textContent = `비교 불가`;
+                ratioSubText.textContent = `비장마철 평균 강수량이 0mm입니다.`;
+            } else {
+                ratioText.textContent = `1.0배`;
+                ratioSubText.textContent = `두 기간 모두 평균 강수량이 0mm입니다.`;
+            }
+
+            const totalAvg = monsoon.avg + nonMonsoon.avg;
+            if (totalAvg > 0) {
+                const mPercent = (monsoon.avg / totalAvg) * 100;
+                barMonsoonRatio.style.width = `${mPercent}%`;
+                barNonMonsoonRatio.style.width = `${100 - mPercent}%`;
+            } else {
+                barMonsoonRatio.style.width = `50%`;
+                barNonMonsoonRatio.style.width = `50%`;
+            }
+        }
+
+        function renderCharts(monsoon, nonMonsoon) {
+            const ctx = document.getElementById('mainChart').getContext('2d');
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            if (activeChartType === 'bar') {
+                chartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: ['장마철', '비장마철'],
+                        datasets: [
+                            {
+                                label: '일 강수량 평균 (mm)',
+                                data: [monsoon.avg, nonMonsoon.avg],
+                                backgroundColor: ['#3b82f6', '#10b981'],
+                                borderRadius: 6,
+                            },
+                            {
+                                label: '일 강수량 최댓값 (mm)',
+                                data: [monsoon.max, nonMonsoon.max],
+                                backgroundColor: ['#1e40af', '#047857'],
+                                borderRadius: 6,
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'bottom' },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return `${context.dataset.label}: ${context.raw.toFixed(2)} mm`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: '강수량 (mm)' }
+                            }
+                        }
+                    }
+                });
+
+            } else if (activeChartType === 'box') {
+                chartInstance = new Chart(ctx, {
+                    type: 'boxplot',
+                    data: {
+                        labels: ['장마철', '비장마철'],
+                        datasets: [{
+                            label: '일 강수량 분포 (mm)',
+                            backgroundColor: ['rgba(59, 130, 246, 0.5)', 'rgba(16, 185, 129, 0.5)'],
+                            borderColor: ['#2563eb', '#059669'],
+                            borderWidth: 2,
+                            outlierColor: '#ef4444',
+                            padding: 10,
+                            itemRadius: 3,
+                            data: [monsoon.values, nonMonsoon.values]
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: '일 강수량 (mm)' }
+                            }
+                        }
+                    }
+                });
+
+            } else if (activeChartType === 'timeline') {
+                chartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: validCleanData.map(d => d.date),
+                        datasets: [{
+                            label: '일 강수량 (mm)',
+                            data: validCleanData.map(d => d.precip),
+                            backgroundColor: validCleanData.map(d => d.isMonsoon ? '#3b82f6' : '#10b981'),
+                            borderRadius: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    title: function(items) {
+                                        const idx = items[0].dataIndex;
+                                        const item = validCleanData[idx];
+                                        return `${item.date} (${item.isMonsoon ? '장마철' : '비장마철'})`;
+                                    },
+                                    label: function(item) {
+                                        return `일 강수량: ${item.raw} mm`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: '일 강수량 (mm)' }
+                            },
+                            x: {
+                                ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 25 }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        const btnChartBar = document.getElementById('btnChartBar');
+        const btnChartBox = document.getElementById('btnChartBox');
+        const btnChartTimeline = document.getElementById('btnChartTimeline');
+
+        function setChartType(type) {
+            activeChartType = type;
+            [btnChartBar, btnChartBox, btnChartTimeline].forEach(btn => {
+                btn.className = 'px-3 py-1.5 rounded-md font-medium text-slate-500 hover:text-slate-800 transition';
+            });
+
+            if (type === 'bar') btnChartBar.className = 'px-3 py-1.5 rounded-md font-medium text-slate-800 bg-white shadow-sm transition';
+            if (type === 'box') btnChartBox.className = 'px-3 py-1.5 rounded-md font-medium text-slate-800 bg-white shadow-sm transition';
+            if (type === 'timeline') btnChartTimeline.className = 'px-3 py-1.5 rounded-md font-medium text-slate-800 bg-white shadow-sm transition';
+
+            if (validCleanData.length > 0) {
+                const monsoonSet = validCleanData.filter(d => d.isMonsoon);
+                const nonMonsoonSet = validCleanData.filter(d => !d.isMonsoon);
+                const calculateStats = (arr) => ({
+                    avg: arr.length ? arr.reduce((a, b) => a + b.precip, 0) / arr.length : 0,
+                    max: arr.length ? Math.max(...arr.map(d => d.precip)) : 0,
+                    values: arr.map(d => d.precip)
+                });
+                renderCharts(calculateStats(monsoonSet), calculateStats(nonMonsoonSet));
+            }
+        }
+
+        btnChartBar.addEventListener('click', () => setChartType('bar'));
+        btnChartBox.addEventListener('click', () => setChartType('box'));
+        btnChartTimeline.addEventListener('click', () => setChartType('timeline'));
+
+        const tableBody = document.getElementById('dataTableBody');
+        const tableSearch = document.getElementById('tableSearch');
+        const tableFilter = document.getElementById('tableFilter');
+
+        function renderDataTable(data) {
+            const searchTerm = tableSearch.value.toLowerCase();
+            const filterValue = tableFilter.value;
+
+            const filteredData = data.filter(item => {
+                const matchesSearch = item.date.toLowerCase().includes(searchTerm);
+                let matchesCategory = true;
+                if (filterValue === 'monsoon') matchesCategory = item.isMonsoon;
+                if (filterValue === 'nonMonsoon') matchesCategory = !item.isMonsoon;
+                return matchesSearch && matchesCategory;
+            });
+
+            if (filteredData.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-400">일치하는 데이터가 존재하지 않습니다.</td></tr>`;
+                return;
+            }
+
+            tableBody.innerHTML = filteredData.map((item, index) => `
+                <tr class="hover:bg-slate-50 transition">
+                    <td class="py-2.5 px-4 font-mono text-slate-400">${index + 1}</td>
+                    <td class="py-2.5 px-4 font-medium text-slate-800">${item.date}</td>
+                    <td class="py-2.5 px-4 text-slate-500">${item.time}</td>
+                    <td class="py-2.5 px-4">
+                        ${item.isMonsoon 
+                            ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-100 text-blue-700 border border-blue-200">장마철</span>` 
+                            : `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">비장마철</span>`
+                        }
+                    </td>
+                    <td class="py-2.5 px-4 text-right font-semibold ${item.precip > 0 ? 'text-indigo-600' : 'text-slate-400'}">
+                        ${item.precip.toFixed(1)} mm
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        tableSearch.addEventListener('input', () => renderDataTable(validCleanData));
+        tableFilter.addEventListener('change', () => renderDataTable(validCleanData));
+
+    </script>
+</body>
+</html>
